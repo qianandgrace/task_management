@@ -85,3 +85,9 @@ npm run dev               # 打开 http://localhost:5173
 - 无 `GET /api/auth/me`：刷新页面后登录态不保留（token 仍在 localStorage，但需重新登录才能恢复用户信息）。
 - `JWT_SECRET` 缺省有开发回退值，生产环境必须设置。
 - `?status=`（空字符串）会返回 400；前端不会触发。
+
+优化点1：
+构建镜像时选择阿里源等国内源
+
+优化点2：
+windows终端执行长命令挂的次数比较多，可以使用linux mac或者每次写脚本执行会更快

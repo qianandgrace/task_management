@@ -1,0 +1,26 @@
+services:
+  backend:
+    build: ./backend
+    container_name: taskmgmt-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://47.93.40.210}
+    volumes:
+      - backend-data:/app/data
+    expose:
+      - "4000"
+
+  frontend:
+    build: ./frontend
+    container_name: taskmgmt-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend-data:

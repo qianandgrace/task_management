@@ -1,0 +1,15 @@
+# Normalize line endings: text files get LF in the repo (autocrlf may convert on checkout)
+* text=auto
+
+# Files that run on Linux servers must always be LF
+*.sh         text eol=lf
+Dockerfile   text eol=lf
+*.dockerfile text eol=lf
+
+# Binary assets
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary

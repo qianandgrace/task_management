@@ -3,3 +3,9 @@
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Local env / secrets — never commit (see .claude/rules/00-security.md §5)
+# Keeps tracked .env.example / .env.test (placeholders only); ignores real local env.
+.env
+.env.local
+.env.*.local

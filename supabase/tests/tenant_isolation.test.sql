@@ -8,7 +8,7 @@
 
 BEGIN;
 
-SELECT plan(6);
+SELECT plan(9);
 
 -- ----------------------------------------------------------
 -- Setup: seed two auth.users as superuser (pgTAP runs as postgres,
@@ -48,7 +48,25 @@ INSERT INTO auth.users (
   now(), now(), now()
 );
 
+-- Seed p3 → trigger auto-creates profile + personal org + member(owner).
+-- We then remove p3's auto-created org/member and re-insert p3 as a VIEWER
+-- in p2's org (o2), to test that a viewer cannot escalate via direct writes.
+INSERT INTO auth.users (
+  id, email, encrypted_password, aud, role,
+  email_confirmed_at, instance_id,
+  raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at, last_sign_in_at
+) VALUES (
+  'cccccccc-cccc-cccc-cccc-cccccccccccc', 'p3viewer@example.com',
+  crypt('password', gen_salt('bf')),
+  'authenticated', 'authenticated',
+  now(), '00000000-0000-0000-0000-000000000000',
+  '{}'::jsonb, '{}'::jsonb,
+  now(), now(), now()
+);
+
 -- Capture trigger-created org ids (superuser, before role switches)
+-- Also: re-seat p3 as a VIEWER in p2's org (o2) for the viewer-denial tests.
 DO $$
 DECLARE
     _o1 uuid; -- p1's personal org
@@ -58,6 +76,15 @@ BEGIN
     SELECT id INTO _o2 FROM public.organizations WHERE owner_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid LIMIT 1;
     PERFORM set_config('test.p1_org_id', _o1::text, true);
     PERFORM set_config('test.p2_org_id', _o2::text, true);
+
+    -- Remove p3's auto-created personal org + owner member (keep profile for FK).
+    DELETE FROM public.members WHERE profile_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid;
+    DELETE FROM public.organizations WHERE owner_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid;
+
+    -- Insert p3 as VIEWER in p2's org (o2). p2 remains owner of o2.
+    INSERT INTO public.members (organization_id, profile_id, role, tenant_id)
+    VALUES (_o2, 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, 'viewer', _o2)
+    ON CONFLICT (organization_id, profile_id) DO NOTHING;
 END $$;
 
 -- ----------------------------------------------------------
@@ -122,6 +149,63 @@ SELECT is(
     (SELECT count(*) FROM public.members WHERE organization_id = current_setting('test.p2_org_id', true)::uuid),
     0::bigint,
     'p1 boundary: filter by foreign org id returns 0 rows'
+);
+
+-- ----------------------------------------------------------
+-- Test Group 6: members RLS role-gating (spec §9.3) — viewer denial
+-- p3 is a VIEWER in p2's org (o2). A viewer must NOT be able to
+-- escalate their own role or delete other members via direct client
+-- writes. The Edge Function is the app path; RLS is the backstop.
+-- ----------------------------------------------------------
+
+-- Test 6: viewer (p3) attempts to escalate self to owner → blocked
+SET LOCAL ROLE 'authenticated';
+SET LOCAL REQUEST.JWT.CLAIMS TO '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+UPDATE public.members
+SET role = 'owner'
+WHERE organization_id = current_setting('test.p2_org_id', true)::uuid
+  AND profile_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid;
+
+SELECT is(
+    (SELECT role FROM public.members
+     WHERE organization_id = current_setting('test.p2_org_id', true)::uuid
+       AND profile_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid),
+    'viewer',
+    'viewer escalation blocked: role still viewer after UPDATE attempt'
+);
+
+-- Test 7: viewer (p3) attempts to delete the org owner (p2) → blocked
+SET LOCAL ROLE 'authenticated';
+SET LOCAL REQUEST.JWT.CLAIMS TO '{"sub":"cccccccc-cccc-cccc-cccc-cccccccccccc","role":"authenticated"}';
+
+DELETE FROM public.members
+WHERE organization_id = current_setting('test.p2_org_id', true)::uuid
+  AND profile_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid;
+
+SELECT is(
+    (SELECT count(*) FROM public.members
+     WHERE organization_id = current_setting('test.p2_org_id', true)::uuid
+       AND profile_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid),
+    1::bigint,
+    'viewer delete blocked: owner row still present after DELETE attempt'
+);
+
+-- Test 8 (sanity): owner (p2) CAN update a member's role in their org
+SET LOCAL ROLE 'authenticated';
+SET LOCAL REQUEST.JWT.CLAIMS TO '{"sub":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","role":"authenticated"}';
+
+UPDATE public.members
+SET role = 'admin'
+WHERE organization_id = current_setting('test.p2_org_id', true)::uuid
+  AND profile_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid;
+
+SELECT is(
+    (SELECT role FROM public.members
+     WHERE organization_id = current_setting('test.p2_org_id', true)::uuid
+       AND profile_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid),
+    'admin',
+    'owner can update member role (sanity: owner/admin write allowed)'
 );
 
 SELECT * FROM finish();

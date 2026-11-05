@@ -18,7 +18,7 @@ globs:
 - 触发器或 RPC 函数若需在 RLS 之下引导数据（如 `handle_new_user` 在 `auth.users` insert 时建 `profiles` + `organizations` + `members`），必须：
   - 声明 `SECURITY DEFINER`；
   - 固定 `search_path`（如 `SET search_path = public`），防 search_path 劫持；
-  - 以最小权限 role 作为 owner，不用 superuser/service role（见 spec §9 R1/R2）。
+  - 以最小权限 role 作为 owner，不用 superuser/service role（见 spec §9.6 `handle_new_user` 与 §9.5 Realtime 鉴权；RLS bypass 仅限受控 bootstrap，pre-flight R1/R2 裁定）。
 - 此类函数仅用于注册引导等受控路径，不得泛化为绕过 RLS 的通用通道。
 
 ## 3. 认证

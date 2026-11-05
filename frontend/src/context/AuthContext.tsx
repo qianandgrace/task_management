@@ -58,13 +58,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchProfile();
   }, [user?.id]);
 
+  const fetchProfileFor = useCallback(async (userId: string): Promise<{ name: string } | null> => {
+    try {
+      const { data } = await supabase.from('profiles').select('name').eq('id', userId).single();
+      return data ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // signIn/signUp set user (and profile) directly from the auth response BEFORE
+  // returning, so the post-signIn navigate('/dashboard') sees a non-null user
+  // immediately. onAuthStateChange remains for token refresh / sign-out.
   const signIn = useCallback(
-    (email: string, password: string) => authApi.signIn(email, password),
-    [],
+    async (email: string, password: string) => {
+      const { user } = await authApi.signIn(email, password);
+      setUser(user);
+      setProfile(await fetchProfileFor(user.id));
+    },
+    [fetchProfileFor],
   );
   const signUp = useCallback(
-    (email: string, password: string, name: string) => authApi.signUp(email, password, name),
-    [],
+    async (email: string, password: string, name: string) => {
+      const { user } = await authApi.signUp(email, password, name);
+      setUser(user);
+      setProfile(await fetchProfileFor(user.id));
+    },
+    [fetchProfileFor],
   );
   const signOut = useCallback(() => authApi.signOut(), []);
 

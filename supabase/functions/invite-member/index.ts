@@ -1,4 +1,3 @@
-import { serve } from 'https://deno.land/x/edge_runtime_core@0.2.7/mod.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') ?? 'http://localhost:5173';
@@ -13,7 +12,7 @@ function corsHeaders(): Record<string, string> {
   };
 }
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     const reqOrigin = req.headers.get('origin');

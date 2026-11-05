@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   WorkspaceContext,
   getStoredOrgId,
-  setStoredOrgId,
+  setStoredOrg,
 } from '../context/WorkspaceContext';
 import { listMyOrganizations } from '../api/organizations';
 import type { Organization } from '../types';
@@ -18,7 +18,8 @@ export function WorkspaceSwitcher({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleChange = (orgId: string) => {
-    setStoredOrgId(orgId);
+    const org = orgs.find((o) => o.id === orgId);
+    if (org) setStoredOrg(org);
     setSelected(orgId);
   };
 

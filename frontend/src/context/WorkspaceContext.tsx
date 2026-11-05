@@ -1,6 +1,8 @@
 import { createContext } from 'react';
+import type { Organization } from '../types';
 
 const STORAGE_KEY = 'taskmgmt_org_id';
+const STORAGE_NAME_KEY = 'taskmgmt_org_name';
 
 export function getStoredOrgId(): string | null {
   try {
@@ -10,16 +12,27 @@ export function getStoredOrgId(): string | null {
   }
 }
 
-export function setStoredOrgId(orgId: string): void {
+export function getStoredOrgName(): string | null {
   try {
-    localStorage.setItem(STORAGE_KEY, orgId);
+    return localStorage.getItem(STORAGE_NAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredOrg(org: { id: string; name: string }): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, org.id);
+    localStorage.setItem(STORAGE_NAME_KEY, org.name);
   } catch {
     // ignore
   }
 }
 
 interface WorkspaceContextValue {
+  /** Currently selected organisation id */
   organizationId: string | null;
+  /** Set current organisation (id + name) */
   setOrganizationId: (orgId: string) => void;
 }
 

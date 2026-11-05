@@ -13,7 +13,7 @@ describe('Dashboard', () => {
     vi.resetAllMocks();
   });
 
-  it('renders org name and empty kanban state', async () => {
+  it('renders org name in h1 and empty kanban state', async () => {
     const mockUseAuth = vi.mocked(useAuthMod);
     mockUseAuth.useAuth.mockReturnValue({
       user: { id: 'user-1' } as any,
@@ -37,11 +37,20 @@ describe('Dashboard', () => {
       );
     });
 
-    // Wait for WorkspaceSwitcher effect to resolve listMyOrganizations
-    await waitFor(() => {
-      expect(screen.getByText('My Workspace')).toBeInTheDocument();
-    }, { timeout: 2000 });
+    // Wait for Dashboard effect to resolve listMyOrganizations and set org name
+    await waitFor(
+      () => {
+        expect(document.querySelector('h1')?.textContent).toBe('My Workspace');
+      },
+      { timeout: 2000 },
+    );
 
+    // Assert org name appears in <h1> directly from Dashboard
+    const h1 = document.querySelector('h1');
+    expect(h1).not.toBeNull();
+    expect(h1!.textContent).toBe('My Workspace');
+
+    // Empty kanban state still visible
     expect(screen.getByText('暂无看板')).toBeInTheDocument();
   });
 });

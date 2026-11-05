@@ -68,13 +68,13 @@
 
 ## 5. 已定的 How（实现方决策）
 
-- **目录结构（规范）**：根目录 `CLAUDE.md`（项目概述）+ `.claude/rules/`：
-  - `.claude/rules/00-security.md`（安全规则全局：RLS、CORS、密钥、JWT）
-  - `.claude/rules/01-coding-style.md`（编码风格全局：TS、命名、文件组织）
-  - `.claude/rules/10-api.md`（API/Edge Function/RPC 规范：错误形状、camelCase、状态码）
-  - `.claude/rules/11-frontend.md`（前端规范：React+TS、组件/hooks/api 分层、Supabase 客户端）
-  - `.claude/rules/12-backend.md`（后端规范：迁移、RLS、Edge Function、命名）
-  - `.claude/rules/20-testing.md`（测试规范：pgTAP、Vitest、集成测试对本地栈）
+- **目录结构（规范）**：根目录 `CLAUDE.md`（项目概述）+ `.claude/rules/`。每个 rules 文件带 YAML frontmatter，用 `globs` 字段指定该规范适用的文件范围（Claude Code rules 约定），再写 markdown 正文：
+  - `.claude/rules/00-security.md`（globs: `["**/*"]`；安全规则全局：RLS、CORS、密钥、JWT）
+  - `.claude/rules/01-coding-style.md`（globs: `["**/*.{ts,tsx,sql}"]`；编码风格全局：TS、命名、文件组织）
+  - `.claude/rules/10-api.md`（globs: `["supabase/functions/**/*.ts","frontend/src/api/**/*.ts","supabase/migrations/**/*.sql"]`；API/Edge Function/RPC 规范：错误形状、camelCase、状态码）
+  - `.claude/rules/11-frontend.md`（globs: `["frontend/src/**/*.{ts,tsx}"]`；前端规范：React+TS、组件/hooks/api 分层、Supabase 客户端）
+  - `.claude/rules/12-backend.md`（globs: `["supabase/migrations/**/*.sql","supabase/functions/**/*.ts"]`；后端规范：迁移、RLS、Edge Function、命名）
+  - `.claude/rules/20-testing.md`（globs: `["supabase/tests/**/*.sql","frontend/src/**/*.test.{ts,tsx}","frontend/src/test/**"]`；测试规范：pgTAP、Vitest、集成测试对本地栈）
   从现有 `docs/`（architecture/api-contract/db-schema/decisions）提炼，并补充 Supabase/RLS/TS 新约定。
 - **Supabase 项目布局**：`supabase/`（`config.toml`、`migrations/`、`functions/` Edge Functions、`tests/` pgTAP）。
 - **前端布局**：`frontend/src/{api,components,hooks,context,pages,views,lib}/`，TS。

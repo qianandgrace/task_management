@@ -55,7 +55,7 @@ $$;
 -- Auth-linked user profiles. pk = auth.users.id
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.profiles (
-    id         uuid PRIMARY KEY, -- REFERENCES auth.users(id) — validated by handle_new_user (Task 3)
+    id         uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email      text NOT NULL,
     name       text,
     created_at timestamptz NOT NULL DEFAULT now(),

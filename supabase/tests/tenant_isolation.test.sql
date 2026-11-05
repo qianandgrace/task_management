@@ -10,14 +10,39 @@ SELECT plan(5);
 -- ----------------------------------------------------------
 -- Setup: seed data as superuser (pgTAP runs as postgres,
 -- which bypasses RLS). Two orgs + two profiles + two members.
+-- Seed auth.users first so FK profiles.id → auth.users(id) is satisfied.
 -- ----------------------------------------------------------
 
+-- Auth users (required so profiles FK resolves; GoTrue-managed but seedable as superuser in tests)
+INSERT INTO auth.users (
+  id, email, encrypted_password, aud, role,
+  email_confirmed_at, instance_id,
+  raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at, last_sign_in_at
+) VALUES (
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'p1@example.com',
+  crypt('password', gen_salt('bf')),
+  'authenticated', 'authenticated',
+  now(), '00000000-0000-0000-0000-000000000000',
+  '{}'::jsonb, '{}'::jsonb,
+  now(), now(), now()
+), (
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'p2@example.com',
+  crypt('password', gen_salt('bf')),
+  'authenticated', 'authenticated',
+  now(), '00000000-0000-0000-0000-000000000000',
+  '{}'::jsonb, '{}'::jsonb,
+  now(), now(), now()
+);
+
+-- Organizations
 INSERT INTO public.organizations (id, name, owner_id, created_at, updated_at, tenant_id)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Org One', NULL, now(), now(), '00000000-0000-0000-0000-000000000001');
 
 INSERT INTO public.organizations (id, name, owner_id, created_at, updated_at, tenant_id)
 VALUES ('00000000-0000-0000-0000-000000000002', 'Org Two', NULL, now(), now(), '00000000-0000-0000-0000-000000000002');
 
+-- Profiles
 INSERT INTO public.profiles (id, email, name, created_at, updated_at)
 VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'p1@example.com', 'User One', now(), now());
 

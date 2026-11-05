@@ -29,23 +29,16 @@ BEGIN
     VALUES (NEW.id, NEW.email, org_name)
     ON CONFLICT (id) DO NOTHING;
 
-    -- Create personal organization — wrapped in EXCEPTION block so pre-seeded
-    -- orgs do not abort the transaction. SECURITY DEFINER bypasses RLS for bootstrap.
-    BEGIN
-        INSERT INTO public.organizations (name, owner_id)
-        VALUES (org_name, NEW.id)
-        RETURNING id INTO org_id;
-    EXCEPTION WHEN OTHERS THEN
-        -- Pre-seeded org (e.g., Task 2 seed) exists → ignore, org_id stays null
-        org_id := NULL;
-    END;
+    -- Create personal organization (only gen_random_uuid PK; no pre-seeded conflict possible)
+    -- SECURITY DEFINER bypasses RLS for bootstrap.
+    INSERT INTO public.organizations (name, owner_id)
+    VALUES (org_name, NEW.id)
+    RETURNING id INTO org_id;
 
-    -- Create membership only if we got a new org
-    IF org_id IS NOT NULL THEN
-        INSERT INTO public.members (organization_id, profile_id, role, tenant_id)
-        VALUES (org_id, NEW.id, 'owner', org_id)
-        ON CONFLICT (organization_id, profile_id) DO NOTHING;
-    END IF;
+    -- Create membership (owner role)
+    INSERT INTO public.members (organization_id, profile_id, role, tenant_id)
+    VALUES (org_id, NEW.id, 'owner', org_id)
+    ON CONFLICT (organization_id, profile_id) DO NOTHING;
 
     RETURN NEW;
 END;

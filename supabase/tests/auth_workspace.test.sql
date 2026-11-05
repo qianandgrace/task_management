@@ -158,10 +158,11 @@ END $$;
 -- Test Group 2: list_my_organizations isolation
 -- ----------------------------------------------------------
 
--- Test 2a: p1 sees their org
-SELECT ok(
-    (SELECT count(*) > 0 FROM __list_as_p1__()),
-    'Test 2a: p1 list_my_organizations returns rows'
+-- Test 2a: p1 sees their own org with exact match
+SELECT is(
+    (SELECT count(*) FROM __list_as_p1__() WHERE id = current_setting('test.p1_org_id', true)::uuid AND role = 'owner')::text,
+    '1',
+    'Test 2a: p1 list_my_organizations returns their own org with role owner'
 );
 
 -- Test 2b: outsider cannot see p1's org (outsider has NO membership in any org)

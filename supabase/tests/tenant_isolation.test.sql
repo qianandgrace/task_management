@@ -1,6 +1,9 @@
 -- ============================================================
 -- tenant_isolation.test.sql — multi-tenant RLS isolation
 -- Foundation Task 2 — pgTAP assertions
+-- Adapted for Task 3 handle_new_user trigger: auth.users insert
+-- auto-creates profile + personal org + member(owner).
+-- No manual profile/org/member seeds needed.
 -- ============================================================
 
 BEGIN;
@@ -8,12 +11,14 @@ BEGIN;
 SELECT plan(6);
 
 -- ----------------------------------------------------------
--- Setup: seed data as superuser (pgTAP runs as postgres,
--- which bypasses RLS). Two orgs + two profiles + two members.
--- Seed auth.users first so FK profiles.id → auth.users(id) is satisfied.
+-- Setup: seed two auth.users as superuser (pgTAP runs as postgres,
+-- which bypasses RLS). The handle_new_user trigger fires and
+-- auto-creates: profile(id, email, name), personal org(name, owner_id),
+-- member(org_id, profile_id, 'owner', tenant_id) for each.
+-- Capture the trigger-created org ids BEFORE switching roles.
 -- ----------------------------------------------------------
 
--- Auth users (required so profiles FK resolves; GoTrue-managed but seedable as superuser in tests)
+-- Seed p1 → trigger auto-creates profile + org(o1) + member(owner)
 INSERT INTO auth.users (
   id, email, encrypted_password, aud, role,
   email_confirmed_at, instance_id,
@@ -26,7 +31,15 @@ INSERT INTO auth.users (
   now(), '00000000-0000-0000-0000-000000000000',
   '{}'::jsonb, '{}'::jsonb,
   now(), now(), now()
-), (
+);
+
+-- Seed p2 → trigger auto-creates profile + org(o2) + member(owner)
+INSERT INTO auth.users (
+  id, email, encrypted_password, aud, role,
+  email_confirmed_at, instance_id,
+  raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at, last_sign_in_at
+) VALUES (
   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'p2@example.com',
   crypt('password', gen_salt('bf')),
   'authenticated', 'authenticated',
@@ -35,25 +48,17 @@ INSERT INTO auth.users (
   now(), now(), now()
 );
 
--- Organizations
-INSERT INTO public.organizations (id, name, owner_id, created_at, updated_at, tenant_id)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Org One', NULL, now(), now(), '00000000-0000-0000-0000-000000000001');
-
-INSERT INTO public.organizations (id, name, owner_id, created_at, updated_at, tenant_id)
-VALUES ('00000000-0000-0000-0000-000000000002', 'Org Two', NULL, now(), now(), '00000000-0000-0000-0000-000000000002');
-
--- Profiles
-INSERT INTO public.profiles (id, email, name, created_at, updated_at)
-VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'p1@example.com', 'User One', now(), now());
-
-INSERT INTO public.profiles (id, email, name, created_at, updated_at)
-VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'p2@example.com', 'User Two', now(), now());
-
-INSERT INTO public.members (organization_id, profile_id, role, created_at, updated_at, tenant_id)
-VALUES ('00000000-0000-0000-0000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'owner', now(), now(), '00000000-0000-0000-0000-000000000001');
-
-INSERT INTO public.members (organization_id, profile_id, role, created_at, updated_at, tenant_id)
-VALUES ('00000000-0000-0000-0000-000000000002', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'owner', now(), now(), '00000000-0000-0000-0000-000000000002');
+-- Capture trigger-created org ids (superuser, before role switches)
+DO $$
+DECLARE
+    _o1 uuid; -- p1's personal org
+    _o2 uuid; -- p2's personal org
+BEGIN
+    SELECT id INTO _o1 FROM public.organizations WHERE owner_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid LIMIT 1;
+    SELECT id INTO _o2 FROM public.organizations WHERE owner_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid LIMIT 1;
+    PERFORM set_config('test.p1_org_id', _o1::text, true);
+    PERFORM set_config('test.p2_org_id', _o2::text, true);
+END $$;
 
 -- ----------------------------------------------------------
 -- Test 1: p1 sees only its own org's member rows (count = 1)
@@ -68,7 +73,7 @@ SELECT is(
 );
 
 SELECT is(
-    (SELECT count(*) FROM public.members WHERE organization_id = '00000000-0000-0000-0000-000000000001'),
+    (SELECT count(*) FROM public.members WHERE organization_id = current_setting('test.p1_org_id', true)::uuid),
     1::bigint,
     'p1 authenticated: sees row from own org o1'
 );
@@ -105,7 +110,7 @@ SELECT is(
 -- Test 4 (boundary): p1 cannot see foreign org o2 on organizations table
 -- ----------------------------------------------------------
 SELECT is(
-    (SELECT count(*) FROM public.organizations WHERE id = '00000000-0000-0000-0000-000000000002'),
+    (SELECT count(*) FROM public.organizations WHERE id = current_setting('test.p2_org_id', true)::uuid),
     0::bigint,
     'p1: cannot see foreign org o2'
 );
@@ -114,7 +119,7 @@ SELECT is(
 -- Test 5 (boundary): p1 querying by o2's member id must return 0 rows
 -- ----------------------------------------------------------
 SELECT is(
-    (SELECT count(*) FROM public.members WHERE organization_id = '00000000-0000-0000-0000-000000000002'),
+    (SELECT count(*) FROM public.members WHERE organization_id = current_setting('test.p2_org_id', true)::uuid),
     0::bigint,
     'p1 boundary: filter by foreign org id returns 0 rows'
 );

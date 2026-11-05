@@ -1,0 +1,227 @@
+import { serve } from 'https://deno.land/x/edge_runtime_core@0.2.7/mod.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age': '3600',
+};
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+
+    if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+      return new Response(
+        JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'Missing environment variables' } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Service-role client for database writes/reads (bypasses RLS)
+    const admin = createClient(supabaseUrl, serviceRoleKey);
+
+    // Auth client using the caller's JWT
+    const authorization = req.headers.get('Authorization');
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' } }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const jwt = authorization.slice(7);
+    const caller = createClient(supabaseUrl, anonKey, { global: { fetch: async (url, opts) => {
+      return fetch(url, { ...opts, headers: { ...opts?.headers, authorization: `Bearer ${jwt}` } });
+    }}});
+
+    // Parse body
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ error: { code: 'INVALID_BODY', message: 'Request body must be valid JSON' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const { organizationId, email, role } = body;
+
+    // Validate required fields
+    if (!organizationId || typeof organizationId !== 'string') {
+      return new Response(
+        JSON.stringify({ error: { code: 'MISSING_FIELD', message: 'organizationId is required' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+    if (!email || typeof email !== 'string') {
+      return new Response(
+        JSON.stringify({ error: { code: 'MISSING_FIELD', message: 'email is required' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+    if (!role || typeof role !== 'string') {
+      return new Response(
+        JSON.stringify({ error: { code: 'MISSING_FIELD', message: 'role is required' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Validate role
+    const validRoles = ['owner', 'admin', 'member', 'viewer'];
+    if (!validRoles.includes(role)) {
+      return new Response(
+        JSON.stringify({ error: { code: 'INVALID_ROLE', message: 'role must be one of: owner, admin, member, viewer' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Validate email format (basic check)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return new Response(
+        JSON.stringify({ error: { code: 'INVALID_EMAIL', message: 'Invalid email format' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Get caller's sub (user ID) from JWT
+    // Decode JWT payload without verification (Edge Functions trust their own JWTs)
+    let callerSub: string | null = null;
+    try {
+      const parts = jwt.split('.');
+      if (parts.length >= 2) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+        callerSub = payload.sub || null;
+      }
+    } catch {
+      // If JWT decoding fails, fall back to caller profile lookup
+    }
+
+    if (!callerSub) {
+      return new Response(
+        JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Could not decode user identity' } }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Check caller's role in the target organization
+    const { data: callerMember, error: callerError } = await admin
+      .from('members')
+      .select('role')
+      .eq('organization_id', organizationId)
+      .eq('profile_id', callerSub)
+      .maybeSingle();
+
+    if (callerError) {
+      console.error('Error checking caller membership:', callerError);
+      return new Response(
+        JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'Failed to verify caller permissions' } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (!callerMember) {
+      return new Response(
+        JSON.stringify({ error: { code: 'FORBIDDEN', message: '无权邀请成员' } }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (!['owner', 'admin'].includes(callerMember.role)) {
+      return new Response(
+        JSON.stringify({ error: { code: 'FORBIDDEN', message: '无权邀请成员' } }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Find target user by email in profiles
+    const { data: targetProfile, error: profileError } = await admin
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error('Error finding target profile:', profileError);
+      return new Response(
+        JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'Failed to find target user' } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (!targetProfile) {
+      return new Response(
+        JSON.stringify({ error: { code: 'NOT_FOUND', message: '用户未注册' } }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Check if target is already a member
+    const { data: existingMember } = await admin
+      .from('members')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('profile_id', targetProfile.id)
+      .maybeSingle();
+
+    if (existingMember) {
+      return new Response(
+        JSON.stringify({ error: { code: 'CONFLICT', message: '已是成员' } }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Insert the new membership
+    const { data: newMember, error: insertError } = await admin
+      .from('members')
+      .insert({
+        organization_id: organizationId,
+        profile_id: targetProfile.id,
+        role: role,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('Error inserting member:', insertError);
+      return new Response(
+        JSON.stringify({ error: { code: 'INSERT_ERROR', message: 'Failed to add member' } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Return success response with camelCase keys
+    return new Response(
+      JSON.stringify({
+        member: {
+          id: newMember.id,
+          organizationId: newMember.organization_id,
+          profileId: newMember.profile_id,
+          role: newMember.role,
+          createdAt: newMember.created_at,
+        },
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
+    );
+  } catch (err) {
+    console.error('Unexpected error:', err);
+    return new Response(
+      JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+});

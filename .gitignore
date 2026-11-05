@@ -1,0 +1,5 @@
+# Superpowers SDD plan workspaces (ledger, briefs, reports — scratch)
+.superpowers/
+
+# Claude Code worktrees
+.claude/worktrees/

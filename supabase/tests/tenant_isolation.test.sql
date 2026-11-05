@@ -5,7 +5,7 @@
 
 BEGIN;
 
-SELECT plan(5);
+SELECT plan(6);
 
 -- ----------------------------------------------------------
 -- Setup: seed data as superuser (pgTAP runs as postgres,
@@ -89,19 +89,29 @@ SELECT is(
 );
 
 -- ----------------------------------------------------------
--- Test 3: orgs isolation — p1 can only see o1 via organizations table
---         (uses user_organization_ids helper function)
+-- Test 3: orgs isolation — p1 sees exactly one org (own org o1)
+--         Exact count catches a broken policy (e.g. USING true would give 2)
 -- ----------------------------------------------------------
 SET LOCAL ROLE 'authenticated';
 SET LOCAL REQUEST.JWT.CLAIMS TO '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}';
 
-SELECT ok(
-    (SELECT count(*) FROM public.organizations WHERE id IN (SELECT user_organization_ids())) >= 1,
-    'p1: user_organization_ids() returns at least one org'
+SELECT is(
+    (SELECT count(*) FROM public.organizations),
+    1::bigint,
+    'p1: sees only own org o1 (exact count)'
 );
 
 -- ----------------------------------------------------------
--- Test 4 (Review Focus #1 boundary): p1 querying by o2's id must return 0 rows
+-- Test 4 (boundary): p1 cannot see foreign org o2 on organizations table
+-- ----------------------------------------------------------
+SELECT is(
+    (SELECT count(*) FROM public.organizations WHERE id = '00000000-0000-0000-0000-000000000002'),
+    0::bigint,
+    'p1: cannot see foreign org o2'
+);
+
+-- ----------------------------------------------------------
+-- Test 5 (boundary): p1 querying by o2's member id must return 0 rows
 -- ----------------------------------------------------------
 SELECT is(
     (SELECT count(*) FROM public.members WHERE organization_id = '00000000-0000-0000-0000-000000000002'),
